@@ -175,4 +175,5 @@ class BitTorrentClient:
         # Close output file
         if self.output_file:
             self.output_file.close()
+        print("Bittorrent client stop")
 

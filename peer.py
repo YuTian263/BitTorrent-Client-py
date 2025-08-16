@@ -33,6 +33,7 @@ class PeerConnection:
         #pieces available 
         self.peer_pieces = set() 
         self.pending_request = {} 
+        self.piece_blocks = {}  
          
          #threading 
         self.running = False 
@@ -143,13 +144,26 @@ class PeerConnection:
     
     def _handle_piece_message(self, payload): 
         # handle received piece data 
-        piece_index , begin = struct.unpack('!II',payload[:8])
+        piece_index, begin = struct.unpack('!II', payload[:8])
         block_data = payload[8:]
-        request_key = (piece_index,begin)
-        if request_key in self.pending_request : 
-            print(f"Received, block {piece_index}: {begin} from {self.ip}, {self.port}")
+        request_key = (piece_index, begin)
+        
+        if request_key in self.pending_request: 
+            print(f"Received block {piece_index}:{begin} from {self.ip}:{self.port}")
             del self.pending_request[request_key]
-    
+            
+            # Store the block data
+            if piece_index not in self.piece_blocks:
+                self.piece_blocks[piece_index] = {}
+            self.piece_blocks[piece_index][begin] = block_data
+            
+            # Check if piece is complete
+            piece_size = self.torrent.get_pieces_size(piece_index)
+            received_size = sum(len(data) for data in self.piece_blocks[piece_index].values())
+            
+            if received_size >= piece_size:
+                self._complete_piece(piece_index)
+
     def send_message(self,message_id, payload = b''):
         #send message to peer 
         if not self.connected: 
@@ -162,7 +176,28 @@ class PeerConnection:
         except Exception as e: 
             print(f"Failed to send message {self.ip}: {self.port}:{e}")
             return False 
-
+    
+    def _complete_piece(self, piece_index):
+        """Assemble and verify a complete piece"""
+        # Sort blocks by offset and concatenate
+        sorted_blocks = sorted(self.piece_blocks[piece_index].items())
+        piece_data = b''.join(data for offset, data in sorted_blocks)
+        
+        # Verify hash
+        import hashlib
+        expected_hash = self.torrent.pieces_hash[piece_index]
+        actual_hash = hashlib.sha1(piece_data).digest()
+        
+        if expected_hash == actual_hash:
+            print(f"Piece {piece_index} completed and verified")
+            # TODO: Signal to client that piece is complete
+            # You'll need to add a callback mechanism here
+        else:
+            print(f"Piece {piece_index} hash verification failed")
+        
+        # Clean up
+        del self.piece_blocks[piece_index]
+        
     def send_interested(self): 
         # send interested message 
         if self.send_message(self.INTERESTED) : 

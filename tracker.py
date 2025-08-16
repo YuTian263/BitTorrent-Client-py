@@ -22,26 +22,25 @@ class TrackerClient:
         if isinstance(announce_url, bytes):
             announce_url = announce_url.decode('utf-8')
 
-        param = {
-            'peer_id' : self.peer_id,
-            'port': self.port,
-            'uploaded': uploaded, 
-            'downloaded' : downloaded, 
-            'left': left,
-            'event' : event,
-            'compact' : 1 
+        params = {
+            'info_hash': self.torrent.info_hash,
+            'peer_id': self.peer_id,
+            'port': str(self.port),
+            'uploaded': str(uploaded), 
+            'downloaded': str(downloaded), 
+            'left': str(left),
+            'event': event,
+            'compact': '1' 
         }
 
-        # Build query string manually to handle info_hash properly
+        # Build query string with proper URL encoding
         query_parts = []
-        for key, value in param.items():
+        for key, value in params.items():
             if isinstance(value, bytes):
-                query_parts.append(f"{key}={value}")
+                encoded_value = urllib.parse.quote(value, safe='')
             else:
-                query_parts.append(f"{key}={value}")
-        
-        # Add info_hash separately (it's raw bytes)
-        query_parts.append(f"info_hash={self.torrent.info_hash}")
+                encoded_value = urllib.parse.quote(str(value), safe='')
+            query_parts.append(f"{key}={encoded_value}")
         
         query = "&".join(query_parts)
         url = f"{announce_url}?{query}"
@@ -49,34 +48,33 @@ class TrackerClient:
         print(f"Tracker URL: {url}")
         
         try: 
-            response = urllib.request.urlopen(url, timeout=10)
+            request = urllib.request.Request(url)
+            request.add_header('User-Agent', 'BitTorrent/1.0')
+            response = urllib.request.urlopen(request, timeout=30)
             response_data = Bencode.decode(response.read())
             
             print(f"Tracker response keys: {list(response_data.keys())}")
             print(f"Tracker response: {response_data}")
 
+            # Handle response keys as bytes or strings
+            failure_key = b'failure reason' if b'failure reason' in response_data else 'failure reason'
+            peers_key = b'peers' if b'peers' in response_data else 'peers'
+            interval_key = b'interval' if b'interval' in response_data else 'interval'
+
             # Check for failure reason first
-            if b'failure reason' in response_data:
-                failure_reason = response_data[b'failure reason']
+            if failure_key in response_data:
+                failure_reason = response_data[failure_key]
                 if isinstance(failure_reason, bytes):
                     failure_reason = failure_reason.decode('utf-8')
-                print(f"Tracker error: {failure_reason}")
-                return [], 1800  # Return empty peer list instead of throwing error
+                raise Exception(f"Tracker error: {failure_reason}")
             
-            # Only check for missing peers if there's no failure reason
-            if b'peers' not in response_data:
+            # Check for peers
+            if peers_key not in response_data:
                 print(f"Available keys: {list(response_data.keys())}")
-                # Check if it's a warning message
-                if b'warning message' in response_data:
-                    warning = response_data[b'warning message']
-                    if isinstance(warning, bytes):
-                        warning = warning.decode('utf-8')
-                    print(f"Tracker warning: {warning}")
-                print("Tracker response missing 'peers' field")
-                return [], 1800  # Return empty peer list instead of throwing error
+                raise Exception("Tracker response missing 'peers' field")
             
-            peers = self._parse_peers(response_data[b'peers'])
-            interval = response_data.get(b'interval',1800)
+            peers = self._parse_peers(response_data[peers_key])
+            interval = response_data.get(interval_key, 1800)
 
             print(f"Found {len(peers)} peers from tracker ")
             return peers, interval
@@ -86,10 +84,20 @@ class TrackerClient:
     
     def _parse_peers(self, peers_data): 
         peers = [] 
-        for i in range(0,len(peers_data), 6): 
-            ip_bytes = peers_data[i:i+4]
-            port_bytes = peers_data[i+4:i+6]
-            ip = '.'.join(str(b)for b in ip_bytes)
-            port = struct.unpack('>H',port_bytes)[0]
-            peers.append((ip,port))
+        if isinstance(peers_data, list):
+            # Dictionary format (non-compact)
+            for peer_dict in peers_data:
+                ip_key = b'ip' if b'ip' in peer_dict else 'ip'
+                port_key = b'port' if b'port' in peer_dict else 'port'
+                ip = peer_dict.get(ip_key, b'').decode() if isinstance(peer_dict.get(ip_key, ''), bytes) else peer_dict.get(ip_key, '')
+                port = peer_dict.get(port_key, 0)
+                peers.append((ip, port))
+        else:
+            # Compact format (binary)
+            for i in range(0, len(peers_data), 6): 
+                ip_bytes = peers_data[i:i+4]
+                port_bytes = peers_data[i+4:i+6]
+                ip = '.'.join(str(b) for b in ip_bytes)
+                port = struct.unpack('>H', port_bytes)[0]
+                peers.append((ip, port))
         return peers

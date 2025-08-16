@@ -10,7 +10,14 @@ class TorrentFile:
         self.name = self.info['name']
         self.piece_length = self.info['piece length']
         self.pieces = self.info['pieces']
-        self.length = self.info.get('length', 0)
+        
+        # Handle single-file vs multi-file torrents
+        if 'length' in self.info:
+            self.length = self.info['length']
+        elif 'files' in self.info:
+            self.length = sum(f['length'] for f in self.info['files'])
+        else:
+            raise ValueError("Invalid torrent: no length or files field")
 
         self.info_hash = hashlib.sha1(Bencode.encode(self.info)).digest() 
 
