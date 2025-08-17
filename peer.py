@@ -79,7 +79,7 @@ class PeerConnection:
         return struct.pack(f'B{pstrlen}s8s20s20s',pstrlen,protocol,reserved,self.torrent.info_hash, self.peer_id)
     
     def _handle_message(self): 
-        #handle income message from peer 
+        #handle incoming message from peer 
         try: 
             while self.running and self.connected:
                 #read message length
@@ -234,4 +234,3 @@ class PeerConnection:
                 pass
         self.connected = False 
         print(f"Closed connection to {self.ip}: {self.port}")
-
