@@ -72,7 +72,7 @@ class PeerConnection:
             return False 
         
     def _build_handshake(self): 
-        protocol = b"BitTorrent Protocol"
+        protocol = b"BitTorrent protocol"
         pstrlen = len(protocol)
         reserved = b'\x00' *8 
 
@@ -197,7 +197,7 @@ class PeerConnection:
         
         # Clean up
         del self.piece_blocks[piece_index]
-        
+
     def send_interested(self): 
         # send interested message 
         if self.send_message(self.INTERESTED) : 
