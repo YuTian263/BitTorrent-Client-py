@@ -234,3 +234,5 @@ class PeerConnection:
                 pass
         self.connected = False 
         print(f"Closed connection to {self.ip}: {self.port}")
+
+    
